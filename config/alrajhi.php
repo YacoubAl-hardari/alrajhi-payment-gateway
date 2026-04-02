@@ -11,13 +11,13 @@ return [
 
     'endpoints' => [
         'sandbox' => [
-            'base_url' => env('ALRAJHI_BASE_URL', 'https://securepayments.alrajhibank.com.sa'),
+            'base_url' => env('ALRAJHI_BASE_URL', 'https://securepayments.neoleap.com.sa'),
             'payment_hosted' => '/pg/payment/hosted.htm',
             'payment_token' => '/pg/payment/tranportal.htm',
             'bin_check' => '/pg/payment/bincheck.htm',
         ],
         'production' => [
-            'base_url' => env('ALRAJHI_BASE_URL', 'https://securepayments.alrajhibank.com.sa'),
+            'base_url' => env('ALRAJHI_BASE_URL', 'https://securepayments.neoleap.com.sa'),
             'payment_hosted' => '/pg/payment/hosted.htm',
             'payment_token' => '/pg/payment/tranportal.htm',
             'bin_check' => '/pg/payment/bincheck.htm',
@@ -27,8 +27,8 @@ return [
     'encryption' => [
         'algorithm' => 'AES-256-CBC',
         'iv' => 'PGKEYENCDECIVSPC',
-        'url_encode_before_encrypt' => env('ALRAJHI_URL_ENCODE_BEFORE_ENCRYPT', true),
-        'url_decode_after_decrypt' => env('ALRAJHI_URL_DECODE_AFTER_DECRYPT', true),
+        'url_encode_before_encrypt' => env('ALRAJHI_URL_ENCODE_BEFORE_ENCRYPT', false),
+        'url_decode_after_decrypt' => env('ALRAJHI_URL_DECODE_AFTER_DECRYPT', false),
         'retry_without_url_encoding_on_invalid_trandata' => env('ALRAJHI_RETRY_RAW_TRANDATA_ON_INVALID', true),
     ],
 
@@ -67,7 +67,7 @@ return [
     ],
 
     'udf' => [
-        'auto_fill_defaults' => env('ALRAJHI_UDF_AUTO_FILL_DEFAULTS', true),
+        'auto_fill_defaults' => env('ALRAJHI_UDF_AUTO_FILL_DEFAULTS', false),
         'capture_auto_set_udf7_r' => env('ALRAJHI_CAPTURE_AUTO_SET_UDF7_R', true),
     ],
 ];

@@ -26,7 +26,7 @@ php artisan vendor:publish --tag=alrajhi-config
 Set these values in your `.env`:
 
 ```env
-ALRAJHI_BASE_URL=https://securepayments.alrajhibank.com.sa
+ALRAJHI_BASE_URL=https://securepayments.neoleap.com.sa
 ALRAJHI_ENVIRONMENT=sandbox
 ALRAJHI_TRANPORTAL_ID=your_tranportal_id
 ALRAJHI_TRANPORTAL_PASSWORD=your_password
@@ -49,7 +49,7 @@ ALRAJHI_SUCCESS_STATUSES=1,success,approved,captured,processing,voided
 ALRAJHI_PREFER_CATALOG_MESSAGE=true
 ALRAJHI_INCLUDE_OFFICIAL_MESSAGE=true
 
-ALRAJHI_UDF_AUTO_FILL_DEFAULTS=true
+ALRAJHI_UDF_AUTO_FILL_DEFAULTS=false
 ALRAJHI_CAPTURE_AUTO_SET_UDF7_R=true
 ```
 
@@ -59,19 +59,14 @@ ALRAJHI_CAPTURE_AUTO_SET_UDF7_R=true
 use AlRajhi\PaymentGateway\Facades\AlRajhiPayment;
 
 $payment = AlRajhiPayment::bankHosted()->initiate([
-    'amount' => 100,
-    'currency_code' => '682',
-    'track_id' => 'ORDER-123',
-
-    // Optional metadata
-    'order_id' => 123,
-    'customer_id' => 456,
-    'channel' => 'web',
-    'source' => 'checkout',
-    'reference_type' => 'TrackID',
-
-    // Optional UDF fields (udf1 ... udf10)
-    // 'udf1' => 'order:123',
+    'id' => env('ALRAJHI_TRANPORTAL_ID'),
+    'password' => env('ALRAJHI_TRANPORTAL_PASSWORD'),
+    'amount' => '400.00',
+    'action' => '1',
+    'currencyCode' => '682',
+    'trackId' => 'ssjhskkkhw441155',
+    'responseURL' => env('ALRAJHI_RESPONSE_URL'),
+    'errorURL' => env('ALRAJHI_ERROR_URL'),
 ]);
 ```
 
