@@ -23,8 +23,10 @@ class WebhookService implements WebhookHandlerContract
         callable $successCallback,
         callable $failureCallback
     ): array {
+        $rootPayload = (isset($webhookPayload[0]) && is_array($webhookPayload[0])) ? $webhookPayload[0] : $webhookPayload;
+
         Log::info('Webhook received from ARB', [
-            'type' => $webhookPayload['type'] ?? 'unknown',
+            'type' => $rootPayload['type'] ?? 'unknown',
             'ip' => request()->ip(),
         ]);
 
@@ -42,14 +44,14 @@ class WebhookService implements WebhookHandlerContract
                 $transactionData = $this->transactionMapper->mapToTransaction($payloadData, $resultData);
                 $successCallback($transactionData, $notificationType);
 
-                return ['status' => '1'];
+                return [['status' => '1']];
             }
 
             $errorData = $this->transactionMapper->mapToFailure($resultData, $payloadData);
 
             $failureCallback($errorData, $notificationType);
 
-            return ['status' => '1'];
+            return [['status' => '1']];
         } catch (\Throwable $e) {
             Log::error('Webhook processing failed', [
                 'error' => $e->getMessage(),

@@ -12,7 +12,9 @@ class WebhookController extends Controller
 {
     public function handle(Request $request): JsonResponse
     {
-        $payload = $request->all();
+        $rawBody = (string) $request->getContent();
+        $decoded = json_decode($rawBody, true);
+        $payload = is_array($decoded) ? $decoded : $request->all();
 
         try {
             $response = AlRajhiPayment::webhook()->process(
@@ -40,8 +42,9 @@ class WebhookController extends Controller
             ]);
 
             return response()->json([
-                'status' => '0',
-                'error' => $e->getMessage(),
+                [
+                    'status' => '0',
+                ],
             ], 500);
         }
     }

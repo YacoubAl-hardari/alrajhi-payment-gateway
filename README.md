@@ -74,11 +74,11 @@ Success response shape:
 
 ```php
 [
-    'success' => true,
-    'payment_id' => 'xxxxxxxx',
-    'payment_url' => 'https://securepayments.../tranportal.htm',
-    'redirect_url' => 'https://securepayments.../tranportal.htm?PaymentID=xxxxxxxx',
-    'track_id' => 'ORDER-123',
+         "success": true,
+        "payment_id": "60000260000768000",
+        "payment_url": "https://securepayments.alrajhibank.com.sa/pg/paymentpage.htm",
+        "redirect_url": "https://securepayments.alrajhibank.com.sa/pg/paymentpage.htm?PaymentID=60000260000768",
+        "track_id": "TRK-20260402093943-8348"
 ]
 ```
 
@@ -172,60 +172,35 @@ $failure = $service->failureDetails($result);
 Use your own models, and update states only inside webhook handlers.
 
 ```php
+#As Test I made it in the Route.php 
 use AlRajhi\PaymentGateway\Facades\AlRajhiPayment;
-AlRajhiPayment::webhook()->process(
-    $payload,
-    function (array $transactionData, string $type) {
-        $order = \App\Models\Order::find($transactionData['track_id'] ?? null);
+Route::post('/webhook', function (Request $request) {
+    $rawBody = (string) $request->getContent();
+    $decoded = json_decode($rawBody, true);
+    $payload = is_array($decoded) ? $decoded : $request->all();
+    try {
+        $ack = AlRajhiPayment::webhook()->process(
+            $payload,
+            function (array $transactionData, string $type) {
+                Log::info("Received webhook of type '{$type}' with transaction data:", $transactionData);
+            },
+            function (array $errorData, string $type) {
+                Log::error("Error processing webhook of type '{$type}':", $errorData);
+            }
+        );
 
-        if (! $order) {
-            return;
-        }
-
-        // Idempotency: skip duplicates if already paid
-        if ($order->status === 'paid') {
-            return;
-        }
-
-        $order->payment->update([
-            'payment_id' => $transactionData['payment_id'] ?? null,
-            'transaction_id' => $transactionData['transaction_id'] ?? null,
-            'status' => strtolower((string) ($transactionData['result'] ?? 'unknown')),
-            'raw_response' => $transactionData,
+        return response()->json($ack, 200);
+    } catch (\Throwable $e) {
+        Log::error('Webhook processing failed', [
+            'error' => $e->getMessage(),
+            'payload' => $payload,
         ]);
 
-        switch (true) {
-            case in_array(strtoupper((string) ($transactionData['result'] ?? '')), ['CAPTURED', 'SUCCESS', 'APPROVED'], true):
-                $order->update(['status' => 'paid', 'paid_at' => now()]);
-                break;
-
-            case strtoupper((string) ($transactionData['result'] ?? '')) === 'PROCESSING':
-                $order->update(['status' => 'payment_pending']);
-                break;
-
-            default:
-                $order->update(['status' => 'payment_failed']);
-                break;
-        }
-    },
-    function (array $errorData, string $type) {
-        $trackId = $errorData['transaction_data']['trackId'] ?? null;
-        $order = $trackId ? \App\Models\Order::find($trackId) : null;
-
-        if (! $order || $order->status === 'paid') {
-            return;
-        }
-
-        $order->payment->update([
-            'status' => 'failed',
-            'error_code' => $errorData['error_code'] ?? null,
-            'error_message' => $errorData['error_text'] ?? null,
-            'raw_response' => $errorData,
-        ]);
-
-        $order->update(['status' => 'payment_failed']);
+        return response()->json([
+            ['status' => '0'],
+        ], 500);
     }
-);
+});
 ```
 
 ## Webhook endpoint (primary)
