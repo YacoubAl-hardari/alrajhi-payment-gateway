@@ -11,12 +11,14 @@ return [
 
     'endpoints' => [
         'sandbox' => [
-            'base_url' => 'https://securepayments.alrajhibank.com.sa',
+            'base_url' => env('ALRAJHI_BASE_URL', 'https://securepayments.alrajhibank.com.sa'),
+            'payment_hosted' => '/pg/payment/hosted.htm',
             'payment_token' => '/pg/payment/tranportal.htm',
             'bin_check' => '/pg/payment/bincheck.htm',
         ],
         'production' => [
-            'base_url' => 'https://securepayments.alrajhibank.com.sa',
+            'base_url' => env('ALRAJHI_BASE_URL', 'https://securepayments.alrajhibank.com.sa'),
+            'payment_hosted' => '/pg/payment/hosted.htm',
             'payment_token' => '/pg/payment/tranportal.htm',
             'bin_check' => '/pg/payment/bincheck.htm',
         ],

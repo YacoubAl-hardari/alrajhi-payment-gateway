@@ -8,11 +8,32 @@ class RequestPreparer
 {
     public function prepare(array $paymentRequestData): array
     {
+        $paymentRequestData = $this->normalizeAliases($paymentRequestData);
         $paymentRequestData = $this->resolveCallbackUrls($paymentRequestData);
         $paymentRequestData = $this->resolveCustomerIp($paymentRequestData);
         $paymentRequestData['track_id'] = $paymentRequestData['track_id'] ?? Str::uuid()->toString();
 
         return $this->resolveUdfDefaults($paymentRequestData);
+    }
+
+    protected function normalizeAliases(array $paymentRequestData): array
+    {
+        $aliases = [
+            'amt' => 'amount',
+            'trackId' => 'track_id',
+            'currencyCode' => 'currency_code',
+            'responseURL' => 'response_url',
+            'errorURL' => 'error_url',
+            'customerIp' => 'customer_ip',
+        ];
+
+        foreach ($aliases as $from => $to) {
+            if (! array_key_exists($to, $paymentRequestData) && array_key_exists($from, $paymentRequestData)) {
+                $paymentRequestData[$to] = $paymentRequestData[$from];
+            }
+        }
+
+        return $paymentRequestData;
     }
 
     protected function resolveCallbackUrls(array $paymentRequestData): array

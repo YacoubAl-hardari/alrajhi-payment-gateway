@@ -89,12 +89,16 @@ class PaymentGatewayClient
             ];
 
             Log::debug('Bank Hosted Payment Token Request', [
-                'endpoint' => $this->config['endpoints'][$this->config['environment']]['payment_token'] ?? null,
+                'endpoint' => $this->config['endpoints'][$this->config['environment']]['payment_hosted']
+                    ?? $this->config['endpoints'][$this->config['environment']]['payment_token']
+                    ?? null,
                 'headers' => $headers,
             ]);
 
             $response = $this->httpClient->post(
-                $this->config['endpoints'][$this->config['environment']]['payment_token'] ?? '',
+                $this->config['endpoints'][$this->config['environment']]['payment_hosted']
+                    ?? $this->config['endpoints'][$this->config['environment']]['payment_token']
+                    ?? '',
                 [
                     'json' => [$requestBody],
                     'headers' => $headers,

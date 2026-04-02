@@ -9,18 +9,24 @@ class PaymentPayloadBuilder implements PaymentPayloadBuilderContract
 {
     public function build(array $data): array
     {
-        $resolvedResponseUrl = $data['response_url'] ?? config('alrajhi.callbacks.response_url');
-        $resolvedErrorUrl = $data['error_url'] ?? config('alrajhi.callbacks.error_url');
+        $resolvedResponseUrl = $data['response_url'] ?? $data['responseURL'] ?? config('alrajhi.callbacks.response_url');
+        $resolvedErrorUrl = $data['error_url'] ?? $data['errorURL'] ?? config('alrajhi.callbacks.error_url');
+        $resolvedAmount = $data['amount'] ?? $data['amt'] ?? null;
+        $resolvedAction = $data['action'] ?? '1';
+        $resolvedCurrencyCode = $data['currency_code'] ?? $data['currencyCode'] ?? config('alrajhi.currency.default', '682');
+        $resolvedTrackId = $data['track_id'] ?? $data['trackId'] ?? Str::uuid()->toString();
+        $resolvedPortalId = $data['id'] ?? config('alrajhi.credentials.tranportal_id');
+        $resolvedPortalPassword = $data['password'] ?? config('alrajhi.credentials.tranportal_password');
 
         $payload = [
-            'id' => config('alrajhi.credentials.tranportal_id'),
+            'id' => $resolvedPortalId,
             'trandata' => [
-                'amt' => $data['amount'],
-                'action' => $data['action'] ?? '1',
-                'password' => config('alrajhi.credentials.tranportal_password'),
-                'id' => config('alrajhi.credentials.tranportal_id'),
-                'currencyCode' => $data['currency_code'] ?? config('alrajhi.currency.default', '682'),
-                'trackId' => $data['track_id'] ?? Str::uuid()->toString(),
+                'amt' => $resolvedAmount,
+                'action' => $resolvedAction,
+                'password' => $resolvedPortalPassword,
+                'id' => $resolvedPortalId,
+                'currencyCode' => $resolvedCurrencyCode,
+                'trackId' => $resolvedTrackId,
             ],
         ];
 
