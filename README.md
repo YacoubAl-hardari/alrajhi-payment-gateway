@@ -26,7 +26,7 @@ php artisan vendor:publish --tag=alrajhi-config
 Set these values in your `.env`:
 
 ```env
-ALRAJHI_BASE_URL=https://securepayments.neoleap.com.sa
+ALRAJHI_BASE_URL=https://securepayments.alrajhibank.com.sa
 ALRAJHI_ENVIRONMENT=sandbox
 ALRAJHI_TRANPORTAL_ID=your_tranportal_id
 ALRAJHI_TRANPORTAL_PASSWORD=your_password
