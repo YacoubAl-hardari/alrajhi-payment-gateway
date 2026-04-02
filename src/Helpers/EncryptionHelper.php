@@ -13,21 +13,28 @@ class EncryptionHelper
 
     protected string $algorithm;
 
+    protected bool $urlEncodeBeforeEncrypt;
+
+    protected bool $urlDecodeAfterDecrypt;
+
     public function __construct()
     {
         $base = implode('', ['al', 'rajhi']);
         $this->resourceKey = (string) config($base . '.credentials.resource_key', '');
         $this->iv = (string) config($base . '.encryption.iv', 'PGKEYENCDECIVSPC');
         $this->algorithm = (string) config($base . '.encryption.algorithm', 'AES-256-CBC');
+        $this->urlEncodeBeforeEncrypt = $this->toBool(config($base . '.encryption.url_encode_before_encrypt', true));
+        $this->urlDecodeAfterDecrypt = $this->toBool(config($base . '.encryption.url_decode_after_decrypt', true));
     }
 
-    public function encrypt(string $data): string
+    public function encrypt(string $data, ?bool $urlEncodeBeforeEncrypt = null): string
     {
         try {
-            $encodedData = urlencode($data);
+            $shouldUrlEncode = $urlEncodeBeforeEncrypt ?? $this->urlEncodeBeforeEncrypt;
+            $plainText = $shouldUrlEncode ? urlencode($data) : $data;
 
             $encryptedRaw = openssl_encrypt(
-                $encodedData,
+                $plainText,
                 $this->algorithm,
                 $this->resourceKey,
                 OPENSSL_RAW_DATA,
@@ -48,7 +55,7 @@ class EncryptionHelper
         }
     }
 
-    public function decrypt(string $encryptedHex): string
+    public function decrypt(string $encryptedHex, ?bool $urlDecodeAfterDecrypt = null): string
     {
         try {
             $encryptedRaw = hex2bin($encryptedHex);
@@ -69,7 +76,9 @@ class EncryptionHelper
                 throw new EncryptionException('Decryption failed: ' . (openssl_error_string() ?: 'unknown error'));
             }
 
-            return urldecode($decrypted);
+            $shouldUrlDecode = $urlDecodeAfterDecrypt ?? $this->urlDecodeAfterDecrypt;
+
+            return $shouldUrlDecode ? urldecode($decrypted) : $decrypted;
         } catch (\Throwable $e) {
             Log::error('Decryption error', [
                 'message' => $e->getMessage(),
@@ -77,5 +86,21 @@ class EncryptionHelper
 
             throw new EncryptionException($e->getMessage());
         }
+    }
+
+    public function usesUrlEncodingBeforeEncrypt(): bool
+    {
+        return $this->urlEncodeBeforeEncrypt;
+    }
+
+    protected function toBool(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        $normalized = filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+
+        return $normalized ?? false;
     }
 }

@@ -27,6 +27,9 @@ return [
     'encryption' => [
         'algorithm' => 'AES-256-CBC',
         'iv' => 'PGKEYENCDECIVSPC',
+        'url_encode_before_encrypt' => env('ALRAJHI_URL_ENCODE_BEFORE_ENCRYPT', true),
+        'url_decode_after_decrypt' => env('ALRAJHI_URL_DECODE_AFTER_DECRYPT', true),
+        'retry_without_url_encoding_on_invalid_trandata' => env('ALRAJHI_RETRY_RAW_TRANDATA_ON_INVALID', true),
     ],
 
     'currency' => [

@@ -26,13 +26,19 @@ php artisan vendor:publish --tag=alrajhi-config
 Set these values in your `.env`:
 
 ```env
+ALRAJHI_BASE_URL=https://securepayments.alrajhibank.com.sa
 ALRAJHI_ENVIRONMENT=sandbox
 ALRAJHI_TRANPORTAL_ID=your_tranportal_id
 ALRAJHI_TRANPORTAL_PASSWORD=your_password
 ALRAJHI_RESOURCE_KEY=your_resource_key
 
-ALRAJHI_RESPONSE_URL=https://your-domain.com/api/payment/success
-ALRAJHI_ERROR_URL=https://your-domain.com/api/payment/failed
+# Compatibility toggles for trandata encryption/decryption
+ALRAJHI_URL_ENCODE_BEFORE_ENCRYPT=false
+ALRAJHI_URL_DECODE_AFTER_DECRYPT=false
+ALRAJHI_RETRY_RAW_TRANDATA_ON_INVALID=true
+
+ALRAJHI_RESPONSE_URL=${APP_URL}/api/payment/success
+ALRAJHI_ERROR_URL=${APP_URL}/api/payment/failed
 ALRAJHI_WEBHOOK_SECRET=your_webhook_secret
 
 ALRAJHI_STRICT_RESPONSE_MODE=false
@@ -131,14 +137,14 @@ flowchart TD
 - Supports `udf1` to `udf10` in request and normalized response.
 - Each UDF must be scalar and max length 255.
 - Auto defaults for missing `udf1..udf5` (when enabled):
-    - `udf1 = order:{order_id|track_id}`
-    - `udf2 = customer:{customer_id}`
-    - `udf3 = channel:{channel}` (default `web`)
-    - `udf4 = source:{source}` (default `bank_hosted`, `iframe` for iframe flow)
-    - `udf5 = ref:{reference_type}` (default `TrackID`)
+  - `udf1 = order:{order_id|track_id}`
+  - `udf2 = customer:{customer_id}`
+  - `udf3 = channel:{channel}` (default `web`)
+  - `udf4 = source:{source}` (default `bank_hosted`, `iframe` for iframe flow)
+  - `udf5 = ref:{reference_type}` (default `TrackID`)
 - Capture compliance:
-    - For `action=5`, auto-set `udf7=R` (non-saved-card capture) when missing and enabled.
-    - For `action=5`, `udf10` (if provided) must be `PARTIALCAPTURE` or `FINALCAPTURE`.
+  - For `action=5`, auto-set `udf7=R` (non-saved-card capture) when missing and enabled.
+  - For `action=5`, `udf10` (if provided) must be `PARTIALCAPTURE` or `FINALCAPTURE`.
 
 ## Callback vs Webhook (recommended pattern)
 
@@ -249,3 +255,25 @@ Do not make final order/payment updates here.
 ```php
 $binData = AlRajhiPayment::binCheck('515735');
 ```
+
+## Troubleshooting IPAY0100013 (Invalid transaction data)
+
+When the gateway returns `IPAY0100013`, validate these items exactly:
+
+- Endpoint URL must be your assigned gateway host (many merchants currently use `https://securepayments.neoleap.com.sa`).
+- Required transaction fields must be present with exact meaning:
+  - `id` (tranportal id)
+  - `password` (tranportal password)
+  - `action=1`
+  - `currencyCode=682`
+  - `amt` with 2 decimals (example `12.00`)
+  - `trackId` unique value
+  - `responseURL` and `errorURL` valid public HTTPS URLs
+- Resource key must match the same environment/credentials pair.
+- If you changed `.env`, run:
+
+```bash
+php artisan optimize:clear
+```
+
+This package now retries once automatically without URL-encoding `trandata` when the gateway returns `IPAY0100013`.

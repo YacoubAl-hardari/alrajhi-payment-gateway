@@ -68,47 +68,20 @@ class PaymentGatewayClient
                 throw new PaymentGatewayException('Failed to encode trandata payload', 'IPAY0100124');
             }
 
-            $encryptedTrandata = $this->encryption->encrypt($plainTrandata);
+            try {
+                return $this->submitHostedPaymentRequest($payload, $plainTrandata, $customerIp);
+            } catch (PaymentGatewayException $exception) {
+                if (! $this->shouldRetryWithoutUrlEncoding($exception)) {
+                    throw $exception;
+                }
 
-            $requestBody = [
-                'id' => $payload['id'],
-                'trandata' => $encryptedTrandata,
-            ];
+                Log::warning('Retrying hosted payment token request without urlencode trandata', [
+                    'error_code' => $exception->getErrorCode(),
+                    'message' => $exception->getMessage(),
+                ]);
 
-            if (isset($payload['responseURL'])) {
-                $requestBody['responseURL'] = $payload['responseURL'];
+                return $this->submitHostedPaymentRequest($payload, $plainTrandata, $customerIp, false);
             }
-
-            if (isset($payload['errorURL'])) {
-                $requestBody['errorURL'] = $payload['errorURL'];
-            }
-
-            $serverIp = request()?->server('SERVER_ADDR');
-            $headers = [
-                'X-FORWARDED-FOR' => $serverIp ? ($customerIp . ',' . $serverIp) : $customerIp,
-            ];
-
-            Log::debug('Bank Hosted Payment Token Request', [
-                'endpoint' => $this->config['endpoints'][$this->config['environment']]['payment_hosted']
-                    ?? $this->config['endpoints'][$this->config['environment']]['payment_token']
-                    ?? null,
-                'headers' => $headers,
-            ]);
-
-            $response = $this->httpClient->post(
-                $this->config['endpoints'][$this->config['environment']]['payment_hosted']
-                    ?? $this->config['endpoints'][$this->config['environment']]['payment_token']
-                    ?? '',
-                [
-                    'json' => [$requestBody],
-                    'headers' => $headers,
-                ]
-            );
-
-            $rawBody = (string) $response->getBody()->getContents();
-            $responseBody = $this->bodyParser->parse($rawBody);
-
-            return $this->handleResponse($responseBody, $rawBody, $response->getStatusCode());
         } catch (RequestException $e) {
             $rawErrorResponse = (string) ($e->getResponse()?->getBody()->getContents() ?? '');
             $parsedError = $this->bodyParser->parse($rawErrorResponse);
@@ -133,6 +106,80 @@ class PaymentGatewayClient
                 ]
             );
         }
+    }
+
+    protected function submitHostedPaymentRequest(
+        array $payload,
+        string $plainTrandata,
+        string $customerIp,
+        ?bool $urlEncodeBeforeEncrypt = null
+    ): array {
+        $encryptedTrandata = $this->encryption->encrypt($plainTrandata, $urlEncodeBeforeEncrypt);
+
+        $requestBody = [
+            'id' => $payload['id'],
+            'trandata' => $encryptedTrandata,
+        ];
+
+        if (isset($payload['responseURL'])) {
+            $requestBody['responseURL'] = $payload['responseURL'];
+        }
+
+        if (isset($payload['errorURL'])) {
+            $requestBody['errorURL'] = $payload['errorURL'];
+        }
+
+        $serverIp = request()?->server('SERVER_ADDR');
+        $headers = [
+            'X-FORWARDED-FOR' => $serverIp ? ($customerIp . ',' . $serverIp) : $customerIp,
+        ];
+
+        Log::debug('Bank Hosted Payment Token Request', [
+            'endpoint' => $this->config['endpoints'][$this->config['environment']]['payment_hosted']
+                ?? $this->config['endpoints'][$this->config['environment']]['payment_token']
+                ?? null,
+            'headers' => $headers,
+            'url_encode_before_encrypt' => $urlEncodeBeforeEncrypt,
+        ]);
+
+        $response = $this->httpClient->post(
+            $this->config['endpoints'][$this->config['environment']]['payment_hosted']
+                ?? $this->config['endpoints'][$this->config['environment']]['payment_token']
+                ?? '',
+            [
+                'json' => [$requestBody],
+                'headers' => $headers,
+            ]
+        );
+
+        $rawBody = (string) $response->getBody()->getContents();
+        $responseBody = $this->bodyParser->parse($rawBody);
+
+        return $this->handleResponse($responseBody, $rawBody, $response->getStatusCode());
+    }
+
+    protected function shouldRetryWithoutUrlEncoding(PaymentGatewayException $exception): bool
+    {
+        if (! $this->toBool(config('alrajhi.encryption.retry_without_url_encoding_on_invalid_trandata', true))) {
+            return false;
+        }
+
+        if (! $this->encryption->usesUrlEncodingBeforeEncrypt()) {
+            return false;
+        }
+
+        return strtoupper($exception->getErrorCode()) === 'IPAY0100013';
+    }
+
+    protected function toBool(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        $normalized = filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+
+        return $normalized ?? false;
     }
 
     protected function handleResponse(array $response, string $rawBody = '', ?int $httpStatus = null): array
