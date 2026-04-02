@@ -62,25 +62,48 @@ class PaymentGatewayClient
     {
         try {
             $payload = $this->payloadBuilder->build($data);
-            $plainTrandata = json_encode($payload['trandata'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $plainTrandataArray = json_encode([$payload['trandata']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $plainTrandataObject = json_encode($payload['trandata'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-            if ($plainTrandata === false) {
+            if ($plainTrandataArray === false || $plainTrandataObject === false) {
                 throw new PaymentGatewayException('Failed to encode trandata payload', 'IPAY0100124');
             }
 
             try {
-                return $this->submitHostedPaymentRequest($payload, $plainTrandata, $customerIp);
+                return $this->submitHostedPaymentRequest($payload, $plainTrandataArray, $customerIp);
             } catch (PaymentGatewayException $exception) {
-                if (! $this->shouldRetryWithoutUrlEncoding($exception)) {
+                if (! $this->isInvalidTransactionDataError($exception)) {
                     throw $exception;
                 }
 
-                Log::warning('Retrying hosted payment token request without urlencode trandata', [
+                Log::warning('Retrying hosted payment token request with alternative trandata formatting', [
                     'error_code' => $exception->getErrorCode(),
                     'message' => $exception->getMessage(),
                 ]);
 
-                return $this->submitHostedPaymentRequest($payload, $plainTrandata, $customerIp, false);
+                if ($this->shouldRetryWithoutUrlEncoding($exception)) {
+                    try {
+                        return $this->submitHostedPaymentRequest($payload, $plainTrandataArray, $customerIp, false);
+                    } catch (PaymentGatewayException $retryException) {
+                        if (! $this->isInvalidTransactionDataError($retryException)) {
+                            throw $retryException;
+                        }
+                    }
+                }
+
+                try {
+                    return $this->submitHostedPaymentRequest($payload, $plainTrandataObject, $customerIp);
+                } catch (PaymentGatewayException $objectException) {
+                    if (! $this->isInvalidTransactionDataError($objectException)) {
+                        throw $objectException;
+                    }
+
+                    if (! $this->shouldRetryWithoutUrlEncoding($objectException)) {
+                        throw $objectException;
+                    }
+
+                    return $this->submitHostedPaymentRequest($payload, $plainTrandataObject, $customerIp, false);
+                }
             }
         } catch (RequestException $e) {
             $rawErrorResponse = (string) ($e->getResponse()?->getBody()->getContents() ?? '');
@@ -168,6 +191,11 @@ class PaymentGatewayClient
             return false;
         }
 
+        return strtoupper($exception->getErrorCode()) === 'IPAY0100013';
+    }
+
+    protected function isInvalidTransactionDataError(PaymentGatewayException $exception): bool
+    {
         return strtoupper($exception->getErrorCode()) === 'IPAY0100013';
     }
 
