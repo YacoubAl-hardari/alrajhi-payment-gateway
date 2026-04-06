@@ -5,6 +5,7 @@ namespace AlRajhi\PaymentGateway\Services\BankPayment;
 use AlRajhi\PaymentGateway\Contracts\ArrayValueResolverContract;
 use AlRajhi\PaymentGateway\Exceptions\PaymentGatewayException;
 use AlRajhi\PaymentGateway\Helpers\EncryptionHelper;
+use AlRajhi\PaymentGateway\Support\PaymentResultHelper;
 
 class ResponseProcessor
 {
@@ -17,7 +18,85 @@ class ResponseProcessor
     public function __construct(
         protected EncryptionHelper $encryption,
         protected ArrayValueResolverContract $valueResolver
-    ) {
+    ) {}
+
+    public function handleResponseData(array $result): array
+    {
+        $decodedTrandata = $result['trandata_decoded'] ?? null;
+        $data = is_array($decodedTrandata) ? $decodedTrandata : $result;
+
+        $sensitiveFields = [
+            'cardNo', 'cvv2', 'expYear', 'expMonth', 'member', 'password'
+        ];
+        foreach ($sensitiveFields as $field) {
+            if (isset($data[$field])) {
+                unset($data[$field]);
+            }
+        }
+
+        $status = class_exists('PaymentResultHelper') ? PaymentResultHelper::extractUnifiedStatus($result) : [];
+
+       $statusValue = $data['status'] ?? null;
+
+       $hasError = false;
+        foreach (['error', 'errorCode', 'error_code', 'errorText', 'error_text', 'message'] as $errField) {
+            if (!empty($data[$errField])) {
+                $hasError = true;
+                break;
+            }
+        }
+
+        $arbFields = [
+            'transId', 'date', 'trackId', 'udf1', 'udf2', 'udf3', 'udf4', 'udf5',
+            'amt', 'authRespCode', 'authCode', 'cardType', 'custid', 'actionCode',
+            'paymentId', 'ref', 'result', 'error', 'errorText', 'status',
+        ];
+
+        // بناء مصفوفة الحقول المطلوبة
+        $arbData = [];
+        foreach ($arbFields as $field) {
+            // دعم camelCase وsnake_case
+            $arbData[$field] = $data[$field] ?? $data[lcfirst($field)] ?? $data[ucfirst($field)] ?? null;
+        }
+
+        $response = array_merge(
+            $status,
+            $arbData,
+            [
+                'status'        => $statusValue,
+                'is_success'    => ($status['status_final'] ?? null) === 'success',
+                'is_failure'    => $hasError || (($status['status_final'] ?? null) === 'failed'),
+                'is_pending'    => ($status['status_final'] ?? null) === 'pending',
+                'is_captured'   => class_exists('PaymentResultHelper') ? PaymentResultHelper::isCaptured($result) : false,
+                'is_authorized' => class_exists('PaymentResultHelper') ? PaymentResultHelper::isAuthorized($result) : false,
+                'is_cancelled'  => class_exists('PaymentResultHelper') ? PaymentResultHelper::isCancelled($result) : false,
+                'is_voided'     => class_exists('PaymentResultHelper') ? PaymentResultHelper::isVoided($result) : false,
+                'error_code'    => $data['error'] ?? $data['errorCode'] ?? $data['error_code'] ?? null,
+                'error_text'    => $data['errorText'] ?? $data['error_text'] ?? $data['message'] ?? null,
+                'payment_id'    => $data['paymentId'] ?? $data['payment_id'] ?? null,
+                'track_id'      => $data['trackId'] ?? $data['track_id'] ?? null,
+                'amount'        => $data['amt'] ?? $data['amount'] ?? null,
+                'card_type'     => $data['cardType'] ?? null,
+            ]
+        );
+        
+        $duplicates = [
+            'payment_id' => ['paymentId', 'payment_id'],
+            'track_id'   => ['trackId', 'track_id'],
+            'card_type'  => ['cardType', 'card_type'],
+            'amount'     => ['amt', 'amount'],
+            'error_code' => ['error', 'errorCode', 'error_code'],
+            'error_text' => ['errorText', 'error_text', 'message'],
+        ];
+        foreach ($duplicates as $main => $aliases) {
+            foreach ($aliases as $alias) {
+                if (array_key_exists($alias, $response) && $alias !== $main) {
+                    unset($response[$alias]);
+                }
+            }
+        }
+
+        return $response;
     }
 
     public function handleResponse(array $gatewayResponseData): array
@@ -56,22 +135,45 @@ class ResponseProcessor
 
     protected function handleEncryptedResponse(array $gatewayResponseData, string $encryptedTransactionData): array
     {
-        $decryptedTransactionData = $this->encryption->decrypt($encryptedTransactionData);
-        $transactionData = $this->decodeTransactionData($decryptedTransactionData);
+        $results = [];
+        foreach ([null, true, false] as $tryUrlDecode) {
+            try {
+                $decryptedTransactionData = $this->encryption->decrypt($encryptedTransactionData, $tryUrlDecode);
+                $transactionData = $this->decodeTransactionData($decryptedTransactionData);
+                if (is_array($transactionData)) {
+                    if (isset($transactionData[0]) && is_array($transactionData[0])) {
+                        $mainData = $transactionData[0];
+                    } else {
+                        $mainData = $transactionData;
+                    }
+                    $nonNullFields = array_filter($mainData, fn($v) => $v !== null && $v !== '' && $v !== []);
+                    if (count($nonNullFields) > 1) {
 
-        if (! is_array($transactionData)) {
-            throw new PaymentGatewayException(
-                'Invalid decrypted transaction data',
-                'IPAY0100124',
-                0,
-                null,
-                $this->buildErrorDetails($gatewayResponseData, null)
-            );
+                        $payload = $this->buildSuccessPayload($mainData, $gatewayResponseData);
+                        $payload['trandata_decoded'] = $mainData;
+                        return $payload;
+                    }
+                    $results[] = ['try' => $tryUrlDecode, 'data' => $mainData];
+                }
+            } catch (\Throwable $e) {
+                $results[] = ['try' => $tryUrlDecode, 'error' => $e->getMessage()];
+            }
         }
 
-        $this->assertSuccessfulTransaction($gatewayResponseData, $transactionData);
-
-        return $this->buildSuccessPayload($transactionData, $gatewayResponseData);
+        foreach ($results as $res) {
+            if (isset($res['data']) && is_array($res['data'])) {
+                $payload = $this->buildSuccessPayload($res['data'], $gatewayResponseData);
+                $payload['trandata_decoded'] = $res['data'];
+                return $payload;
+            }
+        }
+        throw new PaymentGatewayException(
+            'Invalid decrypted transaction data (all decode attempts)',
+            'IPAY0100124',
+            0,
+            null,
+            $this->buildErrorDetails($gatewayResponseData, null)
+        );
     }
 
     protected function handleNonEncryptedResponse(array $gatewayResponseData): array
@@ -156,36 +258,7 @@ class ResponseProcessor
 
     protected function buildSuccessPayload(array $transactionData, array $gatewayResponseData = []): array
     {
-        $result = $this->valueResolver->first($transactionData, self::RESULT_KEYS);
-
-        return [
-            'success' => true,
-            'payment_id' => $this->valueResolver->first($gatewayResponseData, ['paymentId', 'paymentid'])
-                ?? $this->valueResolver->first($transactionData, ['paymentId', 'paymentid']),
-            'result' => $result,
-            'transaction_id' => $this->valueResolver->first($transactionData, ['transId', 'transid', 'tranid']),
-            'reference_number' => $this->valueResolver->first($transactionData, ['ref', 'referenceNo']),
-            'track_id' => $this->valueResolver->first($transactionData, ['trackId', 'trackid']),
-            'amount' => $this->valueResolver->first($transactionData, ['amt', 'amount']),
-            'auth_code' => $this->valueResolver->first($transactionData, ['authCode', 'authcode']),
-            'auth_response_code' => $this->valueResolver->first($transactionData, ['authRespCode', 'authrespcode']),
-            'card_type' => $this->valueResolver->first($transactionData, ['cardType', 'cardtype']),
-            'action_code' => $this->valueResolver->first($transactionData, ['actionCode', 'actioncode']),
-            'card_number' => $this->valueResolver->first($transactionData, ['card', 'maskedCard']),
-            'exp_month' => $this->valueResolver->first($transactionData, ['expMonth', 'expmonth']),
-            'exp_year' => $this->valueResolver->first($transactionData, ['expYear', 'expyear']),
-            'udf1' => $this->valueResolver->first($transactionData, ['udf1']),
-            'udf2' => $this->valueResolver->first($transactionData, ['udf2']),
-            'udf3' => $this->valueResolver->first($transactionData, ['udf3']),
-            'udf4' => $this->valueResolver->first($transactionData, ['udf4']),
-            'udf5' => $this->valueResolver->first($transactionData, ['udf5']),
-            'udf6' => $this->valueResolver->first($transactionData, ['udf6']),
-            'udf7' => $this->valueResolver->first($transactionData, ['udf7']),
-            'udf8' => $this->valueResolver->first($transactionData, ['udf8']),
-            'udf9' => $this->valueResolver->first($transactionData, ['udf9']),
-            'udf10' => $this->valueResolver->first($transactionData, ['udf10']),
-            'raw_data' => $transactionData,
-        ];
+        return array_merge(['success' => true], $transactionData);
     }
 
     protected function buildDirectTransactionData(array $data): ?array
@@ -231,7 +304,7 @@ class ResponseProcessor
         $normalizedStatus = strtolower(trim($status));
         $configuredStatuses = (string) ($_ENV['ALRAJHI_SUCCESS_STATUSES'] ?? '1,success,approved,captured,processing,voided');
         $configuredSuccessfulStatuses = array_map(
-            static fn (string $statusValue): string => strtolower(trim($statusValue)),
+            static fn(string $statusValue): string => strtolower(trim($statusValue)),
             array_filter(array_map('trim', explode(',', $configuredStatuses)))
         );
 

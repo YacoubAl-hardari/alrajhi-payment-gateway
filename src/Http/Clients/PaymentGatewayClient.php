@@ -10,7 +10,6 @@ use AlRajhi\PaymentGateway\Helpers\EncryptionHelper;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\Log;
 
 class PaymentGatewayClient
 {
@@ -76,11 +75,6 @@ class PaymentGatewayClient
                     throw $exception;
                 }
 
-                Log::warning('Retrying hosted payment token request with alternative trandata formatting', [
-                    'error_code' => $exception->getErrorCode(),
-                    'message' => $exception->getMessage(),
-                ]);
-
                 if ($this->shouldRetryWithoutUrlEncoding($exception)) {
                     try {
                         return $this->submitHostedPaymentRequest($payload, $plainTrandataArray, $customerIp, false);
@@ -112,11 +106,6 @@ class PaymentGatewayClient
                 ?? 'IPAY0100160';
             $resolvedMessage = $this->valueResolver->first($parsedError, ['errorText', 'errortext', 'message'])
                 ?? ('Failed to generate payment token: ' . $e->getMessage());
-
-            Log::error('Bank Hosted Payment Token Request Failed', [
-                'error' => $e->getMessage(),
-                'response' => $rawErrorResponse,
-            ]);
 
             throw new PaymentGatewayException(
                 $resolvedMessage,
@@ -156,15 +145,6 @@ class PaymentGatewayClient
         $headers = [
             'X-FORWARDED-FOR' => $serverIp ? ($customerIp . ',' . $serverIp) : $customerIp,
         ];
-
-        Log::debug('Bank Hosted Payment Token Request', [
-            'endpoint' => $this->config['endpoints'][$this->config['environment']]['payment_hosted']
-                ?? $this->config['endpoints'][$this->config['environment']]['payment_token']
-                ?? null,
-            'headers' => $headers,
-            'url_encode_before_encrypt' => $urlEncodeBeforeEncrypt,
-        ]);
-
         $response = $this->httpClient->post(
             $this->config['endpoints'][$this->config['environment']]['payment_hosted']
                 ?? $this->config['endpoints'][$this->config['environment']]['payment_token']

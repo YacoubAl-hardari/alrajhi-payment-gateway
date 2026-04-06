@@ -22,6 +22,12 @@ class BankHostedService implements PaymentGatewayContract
     ) {
     }
 
+    public function handleResponseData(array $result): array
+    {
+        return $this->responseProcessor->handleResponseData($result);
+    }
+
+
     public function initiate(array $paymentRequestData): array
     {
         $paymentRequestData = $this->requestPreparer->prepare($paymentRequestData);
