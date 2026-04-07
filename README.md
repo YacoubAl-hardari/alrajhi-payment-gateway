@@ -59,19 +59,39 @@ ALRAJHI_CAPTURE_AUTO_SET_UDF7_R=true
 ```php
 use AlRajhi\PaymentGateway\Facades\AlRajhiPayment;
 
-$payment = AlRajhiPayment::bankHosted()->initiate([
-    'id' => env('ALRAJHI_TRANPORTAL_ID'),
-    'password' => env('ALRAJHI_TRANPORTAL_PASSWORD'),
-    'amount' => '400.00',
-    'action' => '1',
-    'currencyCode' => '682',
-    'trackId' => 'ssjhskkkhw441155',
-    'responseURL' => env('ALRAJHI_RESPONSE_URL'),
-    'errorURL' => env('ALRAJHI_ERROR_URL'),
-]);
+Route::post('/test-payment', function (Request $request) {
+    $trackId = 'TRK-' . now()->format('YmdHis') . '-' . random_int(1000, 9999);
+
+    try {
+        $payment = AlRajhiPayment::bankHosted()->initiate([
+            'id' => env('ALRAJHI_TRANPORTAL_ID'),
+            'password' => env('ALRAJHI_TRANPORTAL_PASSWORD'),
+            'amount' => '400.00',
+            'action' => '1',
+            'currencyCode' => '682',
+            'trackId' => $trackId,
+            'responseURL' => env('ALRAJHI_RESPONSE_URL'),
+            'errorURL' => env('ALRAJHI_ERROR_URL'),
+            'response_url' => env('ALRAJHI_RESPONSE_URL'),
+            'error_url' => env('ALRAJHI_ERROR_URL'),
+            'customerIp' => $request->ip(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'payment' => $payment,
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'success' => false,
+            'error' => $e->getMessage(),
+            'exception' => get_class($e),
+        ], 500);
+    }
+});
 ```
 
-Success response shape:
+Test Success response shape:
 
 ```php
 [
@@ -80,6 +100,17 @@ Success response shape:
         "payment_url": "https://securepayments.alrajhibank.com.sa/pg/paymentpage.htm",
         "redirect_url": "https://securepayments.alrajhibank.com.sa/pg/paymentpage.htm?PaymentID=60000260000768",
         "track_id": "TRK-20260402093943-8348"
+]
+```
+Live Success response shape:
+
+```php
+[
+        "success": true,
+        "payment_id": "700202609733477641",
+        "payment_url": "https://digitalpayments.neoleap.com.sa/pg/paymentpage.htm",
+        "redirect_url": "https://digitalpayments.neoleap.com.sa/pg/paymentpage.htm?PaymentID=700202609733477641",
+        "track_id": "TRK-20260407130233-4761"
 ]
 ```
 
@@ -150,19 +181,38 @@ flowchart TD
 ## Handling callback result (UX only)
 
 ```php
-$result = AlRajhiPayment::bankHosted()->handleResponse($request->all());
-$service = AlRajhiPayment::bankHosted();
+// webhook endpoint for testing callback handling
+Route::post('/payment/success', function (Request $request) {
+    $result = AlRajhiPayment::bankHosted()->handleResponse($request->all());
+    $GetResult = AlRajhiPayment::bankHosted()->handleResponseData($result);
 
-$service->isSuccess($result);
-$service->isFailure($result);
-$service->isCaptured($result);
-$service->isAuthorized($result);
-$service->isPending($result);
-$service->isCancelled($result);
-$service->isVoided($result);
+    // منطق تحديد الحالة الموحدة
+    $statusFinal = $GetResult['status_final'] ?? 'unknown';
+    $bankStatus  = $GetResult['bank_status'] ?? null;
 
-$status = $service->getTransactionStatus($result);
-$failure = $service->failureDetails($result);
+    $paymentStatus = match ($statusFinal) {
+        'success'   => 'success',
+        'failed'    => 'failed',
+        'pending'   => 'pending',
+        'voided'    => 'voided',
+        'cancelled' => 'cancelled',
+        default     => $bankStatus ?? 'unknown',
+    };
+
+    // Payment::update([...], ['status' => $paymentStatus]);
+    // Order::update([...], ['status' => ...]);
+
+    return response()->json(array_merge($GetResult, [
+        'payment_status' => $paymentStatus,
+    ]));
+
+});
+Route::post('/payment/failed', function (Request $request) {
+
+    Log::info('Payment failed callback received', $request->all());
+});
+
+
 
 // Recommended in callback: return message/view only
 // Do NOT finalize order/payment status here.
@@ -176,31 +226,23 @@ Use your own models, and update states only inside webhook handlers.
 #As Test I made it in the Route.php 
 use AlRajhi\PaymentGateway\Facades\AlRajhiPayment;
 Route::post('/webhook', function (Request $request) {
-    $rawBody = (string) $request->getContent();
-    $decoded = json_decode($rawBody, true);
-    $payload = is_array($decoded) ? $decoded : $request->all();
-    try {
-        $ack = AlRajhiPayment::webhook()->process(
-            $payload,
-            function (array $transactionData, string $type) {
-                Log::info("Received webhook of type '{$type}' with transaction data:", $transactionData);
-            },
-            function (array $errorData, string $type) {
-                Log::error("Error processing webhook of type '{$type}':", $errorData);
-            }
-        );
+    $payload = $request->all();
 
-        return response()->json($ack, 200);
-    } catch (\Throwable $e) {
-        Log::error('Webhook processing failed', [
-            'error' => $e->getMessage(),
-            'payload' => $payload,
-        ]);
+    // تسجيل البيانات للمتابعة
+    Log::info('AlRajhi Webhook received', $payload);
 
-        return response()->json([
-            ['status' => '0'],
-        ], 500);
-    }
+    // استخراج أهم الحقول
+    $result    = $payload['result'][0] ?? [];
+    $payLoad   = $payload['payLoad'][0] ?? [];
+    $type      = $payload['type'] ?? null;
+    $trackId   = $payLoad['trackId'] ?? null;
+    $paymentId = $payLoad['paymentId'] ?? null;
+    $status    = $result['status'] ?? ($result['error'] ?? null);
+
+    // Payment::where('track_id', $trackId)->update([...]);
+    // Order::where('payment_id', $paymentId)->update([...]);
+
+    return response()->json([['status' => '1']]);
 });
 ```
 
