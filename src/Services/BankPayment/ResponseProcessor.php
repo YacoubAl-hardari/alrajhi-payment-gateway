@@ -24,15 +24,14 @@ class ResponseProcessor
     {
         $decodedTrandata = $result['trandata_decoded'] ?? null;
         $data = is_array($decodedTrandata) ? $decodedTrandata : $result;
-
-        $sensitiveFields = [
-            'cardNo', 'cvv2', 'expYear', 'expMonth', 'member', 'password'
-        ];
-        foreach ($sensitiveFields as $field) {
-            if (isset($data[$field])) {
-                unset($data[$field]);
+            $sensitiveFields = [
+                'cardNo', 'cvv2', 'member', 'password'
+            ];
+            foreach ($sensitiveFields as $field) {
+                if (isset($data[$field])) {
+                    unset($data[$field]);
+                }
             }
-        }
 
         $status = class_exists('PaymentResultHelper') ? PaymentResultHelper::extractUnifiedStatus($result) : [];
 
@@ -45,6 +44,21 @@ class ResponseProcessor
                 break;
             }
         }
+        
+            $resultField = strtolower(trim((string)($data['result'] ?? '')));
+            $successResults = ['1', 'success', 'approved', 'captured', 'processing', 'voided'];
+            $isSuccess = in_array($resultField, array_map('strtolower', $successResults), true);
+
+            $statusFinal = $status['status_final'] ?? 'unknown';
+            $bankStatus  = $status['bank_status'] ?? null;
+            $paymentStatus = match ($statusFinal) {
+                'success'   => 'success',
+                'failed'    => 'failed',
+                'pending'   => 'pending',
+                'voided'    => 'voided',
+                'cancelled' => 'cancelled',
+                default     => $bankStatus ?? 'unknown',
+            };
 
         $arbFields = [
             'transId', 'date', 'trackId', 'udf1', 'udf2', 'udf3', 'udf4', 'udf5',
@@ -52,7 +66,6 @@ class ResponseProcessor
             'paymentId', 'ref', 'result', 'error', 'errorText', 'status',
         ];
 
-        // بناء مصفوفة الحقول المطلوبة
         $arbData = [];
         foreach ($arbFields as $field) {
             // دعم camelCase وsnake_case
@@ -64,7 +77,7 @@ class ResponseProcessor
             $arbData,
             [
                 'status'        => $statusValue,
-                'is_success'    => ($status['status_final'] ?? null) === 'success',
+                'is_success'    => $isSuccess,
                 'is_failure'    => $hasError || (($status['status_final'] ?? null) === 'failed'),
                 'is_pending'    => ($status['status_final'] ?? null) === 'pending',
                 'is_captured'   => class_exists('PaymentResultHelper') ? PaymentResultHelper::isCaptured($result) : false,
@@ -76,7 +89,11 @@ class ResponseProcessor
                 'payment_id'    => $data['paymentId'] ?? $data['payment_id'] ?? null,
                 'track_id'      => $data['trackId'] ?? $data['track_id'] ?? null,
                 'amount'        => $data['amt'] ?? $data['amount'] ?? null,
-                'card_type'     => $data['cardType'] ?? null,
+                'card_type'     => $data['cardType'] ?? $data['card_type'] ?? null,
+                'card'          => $data['card'] ?? null,
+                'expMonth'      => $data['expMonth'] ?? null,
+                'expYear'       => $data['expYear'] ?? null,
+                'payment_status'=> $paymentStatus,
             ]
         );
         
